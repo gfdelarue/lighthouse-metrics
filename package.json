@@ -1,6 +1,6 @@
 {
   "name": "@gfdlr/lighthouse-metrics",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "CLI to generate test, coverage, and LOC metrics with a static HTML report.",
   "type": "module",
   "license": "Apache-2.0",
