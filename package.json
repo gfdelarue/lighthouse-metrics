@@ -1,0 +1,50 @@
+{
+  "name": "@gfdlr/lighthouse-metrics",
+  "version": "0.1.0",
+  "description": "Cross-platform metrics CLI for tests, coverage, and cloc",
+  "type": "module",
+  "license": "Apache-2.0",
+  "author": "George <george.dlr@icloud.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gfdelarue/lighthouse-metrics.git"
+  },
+  "bugs": {
+    "url": "https://github.com/gfdelarue/lighthouse-metrics/issues"
+  },
+  "homepage": "https://github.com/gfdelarue/lighthouse-metrics#readme",
+  "keywords": [
+    "metrics",
+    "coverage",
+    "cloc",
+    "vitest",
+    "testing",
+    "report",
+    "cli",
+    "nextjs"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "bin": {
+    "lighthouse-metrics": "bin/lighthouse-metrics.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "README.md",
+    "lighthouse-metrics.config.json"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "cac": "^6.7.14",
+    "chokidar": "^3.6.0",
+    "execa": "^9.3.0",
+    "open": "^10.1.0"
+  },
+  "peerDependencies": {
+    "vitest": ">=1"
+  }
+}
