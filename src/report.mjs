@@ -1,7 +1,71 @@
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
+import { createRequire } from "module";
 
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const THEME_DIR = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "report-themes"
+);
+const DEFAULT_THEME_NAME = "minimal";
+const LAYOUT_DIR = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "report-layouts"
+);
+const require = createRequire(import.meta.url);
+
+const renderLayout = (name, context) => {
+  const normalized = String(name).trim().toLowerCase();
+  if (!/^[a-z0-9-_]+$/.test(normalized)) {
+    throw new Error(`Invalid layout name "${name}".`);
+  }
+  const layoutPath = path.join(LAYOUT_DIR, `${normalized}.cjs`);
+  if (!fs.existsSync(layoutPath)) {
+    throw new Error(`Unknown report layout "${name}".`);
+  }
+  const layoutModule = require(layoutPath);
+  if (!layoutModule || typeof layoutModule.render !== "function") {
+    throw new Error(`Layout "${name}" does not export a render() function.`);
+  }
+  return layoutModule.render(context);
+};
+
+const loadThemeByName = (name) => {
+  const normalized = String(name).trim().toLowerCase();
+  if (!/^[a-z0-9-_]+$/.test(normalized)) {
+    throw new Error(`Invalid theme name "${name}".`);
+  }
+  const themePath = path.join(THEME_DIR, `${normalized}.json`);
+  if (!fs.existsSync(themePath)) {
+    throw new Error(`Unknown report theme "${name}".`);
+  }
+  const raw = fs.readFileSync(themePath, "utf8");
+  try {
+    return JSON.parse(raw);
+  } catch (error) {
+    throw new Error(`Failed to parse theme "${name}": ${error.message}`);
+  }
+};
+
+const resolveThemeName = (themeValue) => {
+  if (typeof themeValue === "string" && themeValue.trim().length > 0) {
+    return themeValue.trim().toLowerCase();
+  }
+  return DEFAULT_THEME_NAME;
+};
+
+const resolveThemeTokens = (themeValue) => {
+  const baseTheme = loadThemeByName(DEFAULT_THEME_NAME);
+  if (typeof themeValue === "string" && themeValue.trim().length > 0) {
+    return { ...baseTheme, ...loadThemeByName(themeValue) };
+  }
+  if (themeValue && typeof themeValue === "object" && !Array.isArray(themeValue)) {
+    return { ...baseTheme, ...themeValue };
+  }
+  return baseTheme;
+};
 
 const parseTimestamp = (value, format, useLocalTime) => {
   const tokens = [];
@@ -480,7 +544,9 @@ export function buildReport(config) {
   const reportPath = path.resolve(root, config.reportFile);
   const reportConfig = config.report ?? {};
   const chartConfig = reportConfig.chart ?? {};
-  const theme = reportConfig.theme ?? {};
+  const themeName = resolveThemeName(reportConfig.theme);
+  const theme = resolveThemeTokens(reportConfig.theme ?? DEFAULT_THEME_NAME);
+  const layoutName = theme.layout ?? (themeName === "neon-hud" ? "hud" : "minimal");
   const useLocalTime = reportConfig.useLocalTime ?? false;
 
   const historyPattern = config.history?.filePattern ?? "metrics-{timestamp}.json";
@@ -696,319 +762,76 @@ export function buildReport(config) {
   );
   const clocDelta = formatDelta(deltaCloc, { decimals: 0, unit: "", direction: "neutral" });
 
+  const generatedStamp = formatDateShort(new Date(), useLocalTime);
+  const reportTitle = reportConfig.title ?? "Metrics Report";
+
+  // Gamification helpers
+  const getLevelFromCoverage = (pct) => {
+    if (pct == null) return { level: 1, title: "NOVICE", color: "#ff6b6b" };
+    if (pct >= 95) return { level: 10, title: "LEGEND", color: "#ffd700" };
+    if (pct >= 90) return { level: 9, title: "MASTER", color: "#ff9f43" };
+    if (pct >= 85) return { level: 8, title: "EXPERT", color: "#ee5a6f" };
+    if (pct >= 80) return { level: 7, title: "ELITE", color: "#a55eea" };
+    if (pct >= 75) return { level: 6, title: "VETERAN", color: "#26de81" };
+    if (pct >= 70) return { level: 5, title: "ADEPT", color: "#20bf6b" };
+    if (pct >= 60) return { level: 4, title: "SKILLED", color: "#45aaf2" };
+    if (pct >= 50) return { level: 3, title: "APPRENTICE", color: "#4b7bec" };
+    if (pct >= 40) return { level: 2, title: "TRAINEE", color: "#778ca3" };
+    return { level: 1, title: "NOVICE", color: "#ff6b6b" };
+  };
+
+  const getPassRateRank = (rate) => {
+    if (rate == null) return { rank: "F", color: "#ff6b6b", glow: "rgba(255, 107, 107, 0.5)" };
+    if (rate >= 99) return { rank: "S", color: "#ffd700", glow: "rgba(255, 215, 0, 0.6)" };
+    if (rate >= 95) return { rank: "A", color: "#26de81", glow: "rgba(38, 222, 129, 0.5)" };
+    if (rate >= 90) return { rank: "B", color: "#45aaf2", glow: "rgba(69, 170, 242, 0.5)" };
+    if (rate >= 80) return { rank: "C", color: "#fdcb6e", glow: "rgba(253, 203, 110, 0.5)" };
+    if (rate >= 70) return { rank: "D", color: "#ff9f43", glow: "rgba(255, 159, 67, 0.5)" };
+    return { rank: "F", color: "#ff6b6b", glow: "rgba(255, 107, 107, 0.5)" };
+  };
+
+  const coverageLevel = getLevelFromCoverage(latestCoverage?.overall?.lines?.pct);
+  const passRateRank = getPassRateRank(latestTestSummary?.summary?.passRate);
+
+  const { css, body } = renderLayout(layoutName, {
+    theme,
+    reportTitle,
+    reportConfig,
+    generatedStamp,
+    latestCoverage,
+    latestTestSummary,
+    latestCloc,
+    coverageDelta,
+    passRateDelta,
+    durationDelta,
+    clocDelta,
+    clocChart,
+    clocMissingMessage,
+    coverageChart,
+    passRateDurationChart,
+    testCategoryChart,
+    formatNumber,
+    formatDuration,
+    formatDateShort,
+    useLocalTime,
+    coverageLevel,
+    passRateRank,
+  });
   const html = `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>${reportConfig.title ?? "Metrics Report"}</title>
+    <title>${reportTitle}</title>
     <style>
-      @import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=Newsreader:opsz,wght@6..72,500;6..72,700&display=swap");
-
-      :root {
-        color-scheme: light;
-        --bg: ${theme.background ?? "#0f1115"};
-        --bg-accent: ${theme.backgroundAccent ?? "#1a1f2b"};
-        --panel: ${theme.panel ?? "#171a21"};
-        --muted: ${theme.muted ?? "#a3acc2"};
-        --text: ${theme.text ?? "#e6e9ef"};
-        --grid: ${theme.grid ?? "#2a2f3a"};
-        --axis: ${theme.axis ?? "#4b5263"};
-        --accent: ${theme.accent ?? "#60a5fa"};
-        --accent-2: ${theme.accentAlt ?? "#f59e0b"};
-        --shadow: 0 20px 50px rgba(0, 0, 0, 0.25);
-        --radius: 16px;
-      }
-      body {
-        margin: 0;
-        font-family: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
-        background: radial-gradient(1200px 500px at 20% 0%, var(--bg-accent), var(--bg));
-        color: var(--text);
-      }
-      body::before {
-        content: "";
-        position: fixed;
-        inset: 0;
-        background-image: linear-gradient(transparent 95%, rgba(255, 255, 255, 0.03) 95%),
-          linear-gradient(90deg, transparent 95%, rgba(255, 255, 255, 0.03) 95%);
-        background-size: 36px 36px;
-        pointer-events: none;
-        z-index: 0;
-      }
-      main {
-        max-width: 1100px;
-        margin: 0 auto;
-        padding: 32px 24px 56px;
-        position: relative;
-        z-index: 1;
-      }
-      h1 {
-        font-size: 34px;
-        letter-spacing: -0.02em;
-        margin: 0 0 6px;
-        font-family: "Newsreader", "Times New Roman", serif;
-      }
-      .sub {
-        color: var(--muted);
-        margin-bottom: 24px;
-      }
-      .card {
-        background: var(--panel);
-        border: 1px solid #222836;
-        border-radius: var(--radius);
-        padding: 16px 18px;
-        margin-bottom: 24px;
-        box-shadow: var(--shadow);
-      }
-      .hero-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-        gap: 16px;
-        margin-bottom: 24px;
-      }
-      .metric-card {
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-      }
-      .metric-card .label {
-        color: var(--muted);
-        font-size: 12px;
-        text-transform: uppercase;
-        letter-spacing: 0.12em;
-      }
-      .metric-card .value {
-        font-size: 26px;
-        font-weight: 600;
-        letter-spacing: -0.01em;
-      }
-      .delta {
-        font-size: 12px;
-        font-weight: 600;
-        letter-spacing: 0.04em;
-      }
-      .delta-up {
-        color: #4ade80;
-      }
-      .delta-down {
-        color: #f87171;
-      }
-      .delta-flat {
-        color: var(--muted);
-      }
-      .info {
-        font-size: 13px;
-        color: var(--muted);
-        line-height: 1.6;
-      }
-      .code {
-        background: #0c0f15;
-        border: 1px solid #232a38;
-        border-radius: 12px;
-        padding: 12px 14px;
-        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-        font-size: 12.5px;
-        color: #c7d2fe;
-      }
-      .grid {
-        stroke: var(--grid);
-        stroke-width: 1;
-      }
-      .axis {
-        stroke: var(--axis);
-        stroke-width: 1;
-      }
-      .axis-label {
-        fill: var(--muted);
-        font-size: 10px;
-      }
-      .chart-title {
-        font-size: 16px;
-        margin-bottom: 8px;
-      }
-      .legend {
-        display: flex;
-        gap: 12px;
-        margin-bottom: 6px;
-        color: var(--muted);
-        font-size: 12px;
-      }
-      .legend-item {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-      }
-      .legend-dot {
-        width: 10px;
-        height: 10px;
-        border-radius: 50%;
-      }
-      table {
-        width: 100%;
-        border-collapse: collapse;
-        font-size: 13px;
-      }
-      th, td {
-        text-align: left;
-        padding: 8px;
-        border-bottom: 1px solid #232a38;
-      }
-      th {
-        color: var(--muted);
-        font-weight: 600;
-      }
-      .empty {
-        color: var(--muted);
-        padding: 12px 0;
-      }
+${css}
     </style>
   </head>
   <body>
-    <main>
-      <h1>${reportConfig.title ?? "Metrics Report"}</h1>
-      ${
-        reportConfig.subtitle
-          ? `<div class="sub">${reportConfig.subtitle.replace(
-              "{date}",
-              formatDateShort(new Date(), useLocalTime)
-            )}</div>`
-          : ""
-      }
-
-      <div class="hero-grid">
-        <div class="card metric-card">
-          <div class="label">Coverage (lines)</div>
-          <div class="value">${latestCoverage?.overall?.lines?.pct != null ? `${formatNumber(latestCoverage.overall.lines.pct, 2)}%` : "-"}</div>
-          <div class="delta ${coverageDelta.className}">${coverageDelta.text}</div>
-          <div class="info">Latest coverage change vs previous run.</div>
-        </div>
-        <div class="card metric-card">
-          <div class="label">Pass rate</div>
-          <div class="value">${latestTestSummary?.summary?.passRate != null ? `${formatNumber(latestTestSummary.summary.passRate, 2)}%` : "-"}</div>
-          <div class="delta ${passRateDelta.className}">${passRateDelta.text}</div>
-          <div class="info">Overall tests passing ratio.</div>
-        </div>
-        <div class="card metric-card">
-          <div class="label">Test duration</div>
-          <div class="value">${latestTestSummary?.summary?.durationMs != null ? formatDuration(latestTestSummary.summary.durationMs) : "-"}</div>
-          <div class="delta ${durationDelta.className}">${durationDelta.text}</div>
-          <div class="info">Shorter is better. Delta is seconds.</div>
-        </div>
-        <div class="card metric-card">
-          <div class="label">Code lines</div>
-          <div class="value">${latestCloc?.total ?? "-"}</div>
-          <div class="delta ${clocDelta.className}">${clocDelta.text}</div>
-          <div class="info">Total LOC from cloc snapshots.</div>
-        </div>
-      </div>
-
-      ${clocChart ? `<div class="card">${clocChart}</div>` : ""}
-      ${clocMissingMessage}
-
-      ${coverageChart ? `<div class="card">${coverageChart}</div>` : ""}
-
-      ${passRateDurationChart ? `<div class="card">${passRateDurationChart}</div>` : ""}
-
-      ${testCategoryChart ? `<div class="card">${testCategoryChart}</div>` : ""}
-
-      ${
-        reportConfig.table?.enabled !== false
-          ? `<div class="card">
-        <div class="chart-title">Latest snapshot</div>
-        <table>
-          <thead>
-            <tr>
-              <th>Metric</th>
-              <th>Value</th>
-              <th>Timestamp</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${
-              reportConfig.table?.showCloc !== false
-                ? `<tr>
-              <td>Total code lines</td>
-              <td>${latestCloc?.total ?? "-"}</td>
-              <td>${latestCloc?.date ? formatDateShort(latestCloc.date, useLocalTime) : "-"}</td>
-            </tr>
-            <tr>
-              <td>TS code lines</td>
-              <td>${latestCloc?.ts ?? "-"}</td>
-              <td>${latestCloc?.date ? formatDateShort(latestCloc.date, useLocalTime) : "-"}</td>
-            </tr>
-            <tr>
-              <td>TSX code lines</td>
-              <td>${latestCloc?.tsx ?? "-"}</td>
-              <td>${latestCloc?.date ? formatDateShort(latestCloc.date, useLocalTime) : "-"}</td>
-            </tr>`
-                : ""
-            }
-            ${
-              reportConfig.table?.showCoverage !== false
-                ? `<tr>
-              <td>Coverage (Lines%)</td>
-              <td>${latestCoverage?.overall?.lines?.pct?.toFixed(2) ?? "-"}</td>
-              <td>${latestCoverage?.date ? formatDateShort(latestCoverage.date, useLocalTime) : "-"}</td>
-            </tr>
-            <tr>
-              <td>Coverage (Funcs%)</td>
-              <td>${latestCoverage?.overall?.functions?.pct?.toFixed(2) ?? "-"}</td>
-              <td>${latestCoverage?.date ? formatDateShort(latestCoverage.date, useLocalTime) : "-"}</td>
-            </tr>
-            <tr>
-              <td>Coverage (Branch%)</td>
-              <td>${latestCoverage?.overall?.branches?.pct?.toFixed(2) ?? "-"}</td>
-              <td>${latestCoverage?.date ? formatDateShort(latestCoverage.date, useLocalTime) : "-"}</td>
-            </tr>
-            <tr>
-              <td>Coverage (Stmts%)</td>
-              <td>${latestCoverage?.overall?.statements?.pct?.toFixed(2) ?? "-"}</td>
-              <td>${latestCoverage?.date ? formatDateShort(latestCoverage.date, useLocalTime) : "-"}</td>
-            </tr>`
-                : ""
-            }
-            ${
-              reportConfig.table?.showTests !== false
-                ? `<tr>
-              <td>Tests pass rate</td>
-              <td>${latestTestSummary?.summary?.passRate != null
-                ? `${latestTestSummary.summary.passRate.toFixed(2)}%`
-                : "-"}</td>
-              <td>${latestTestSummary?.date ? formatDateShort(latestTestSummary.date, useLocalTime) : "-"}</td>
-            </tr>
-            <tr>
-              <td>Tests duration</td>
-              <td>${latestTestSummary?.summary?.durationMs != null
-                ? formatDuration(latestTestSummary.summary.durationMs)
-                : "-"}</td>
-              <td>${latestTestSummary?.date ? formatDateShort(latestTestSummary.date, useLocalTime) : "-"}</td>
-            </tr>
-            <tr>
-              <td>Tests total (passed/failed/skipped)</td>
-              <td>${latestTestSummary?.summary
-                ? `${latestTestSummary.summary.total} (${latestTestSummary.summary.passed}/${latestTestSummary.summary.failed}/${latestTestSummary.summary.skipped})`
-                : "-"}</td>
-              <td>${latestTestSummary?.date ? formatDateShort(latestTestSummary.date, useLocalTime) : "-"}</td>
-            </tr>`
-                : ""
-            }
-          </tbody>
-        </table>
-      </div>`
-          : ""
-      }
-
-      <div class="card">
-        <div class="chart-title">Quick commands</div>
-        <div class="info">Run metrics and rebuild the report in your project.</div>
-        <div class="code">
-          npx @gfdlr/lighthouse-metrics run<br />
-          npx @gfdlr/lighthouse-metrics serve --open
-        </div>
-      </div>
-    </main>
+${body}
   </body>
 </html>`;
+
 
   fs.mkdirSync(reportDir, { recursive: true });
   fs.writeFileSync(reportPath, html, "utf8");

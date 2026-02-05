@@ -78,15 +78,7 @@
     "title": "Metrics Report",
     "subtitle": "Generated {date} (UTC)",
     "useLocalTime": false,
-    "theme": {
-      "background": "#0f1115",
-      "backgroundAccent": "#1a1f2b",
-      "panel": "#171a21",
-      "muted": "#a3acc2",
-      "text": "#e6e9ef",
-      "grid": "#2a2f3a",
-      "axis": "#4b5263"
-    },
+    "theme": "minimal",
     "chart": {
       "width": 900,
       "height": 260,
