@@ -132,7 +132,6 @@ const DEFAULTS = {
         enabled: true,
         title: "Code lines (from cloc snapshots)",
         yMin: 0,
-        yMax: 50000,
         showTotal: true,
         showTs: true,
         showTsx: true,

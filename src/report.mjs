@@ -104,6 +104,40 @@ function readMetricsFile(filePath) {
   };
 }
 
+const CLOC_Y_MAX_TIERS = [
+  2000,
+  5000,
+  10000,
+  25000,
+  50000,
+  100000,
+  250000,
+  500000,
+  1000000,
+  2000000,
+];
+
+const getClocTieredMax = (value) => {
+  if (typeof value !== "number" || Number.isNaN(value)) return null;
+  for (const tier of CLOC_Y_MAX_TIERS) {
+    if (value <= tier) return tier;
+  }
+  return CLOC_Y_MAX_TIERS[CLOC_Y_MAX_TIERS.length - 1];
+};
+
+const getMaxSeriesValue = (series) => {
+  let maxValue = null;
+  for (const line of series) {
+    for (const point of line.points ?? []) {
+      if (typeof point.value !== "number" || Number.isNaN(point.value)) continue;
+      if (maxValue == null || point.value > maxValue) {
+        maxValue = point.value;
+      }
+    }
+  }
+  return maxValue;
+};
+
 function listMetricFiles(dir, prefix, config) {
   if (!fs.existsSync(dir)) return [];
   return fs
@@ -486,16 +520,25 @@ export function buildReport(config) {
       points: metricsSeries.map((p) => ({ label: p.label, value: p.clocTsx })),
     });
   }
+  const clocSeriesMax = getMaxSeriesValue(clocSeries);
+  const clocHasData = clocSeriesMax != null;
   const clocChart =
-    clocChartConfig.enabled === false
+    clocChartConfig.enabled === false || !clocHasData
       ? ""
       : svgMultiLineChart({
           title: clocChartConfig.title ?? "Code lines (from cloc snapshots)",
           yMin: clocChartConfig.yMin ?? 0,
-          yMax: clocChartConfig.yMax ?? 50000,
+          yMax: clocChartConfig.yMax ?? getClocTieredMax(clocSeriesMax) ?? 50000,
           series: clocSeries,
           chart: chartConfig,
         });
+  const clocMissingMessage =
+    clocChartConfig.enabled === false || clocHasData
+      ? ""
+      : `<div class="card">
+        <div class="chart-title">Code lines</div>
+        <div class="empty">Install <code>cloc</code> to enable code lines metrics (https://github.com/AlDanial/cloc).</div>
+      </div>`;
 
   const coverageChartConfig = reportConfig.charts?.coverage ?? {};
   const coverageMetric = coverageChartConfig.metric ?? "lines";
@@ -689,6 +732,7 @@ export function buildReport(config) {
       }
 
       ${clocChart ? `<div class="card">${clocChart}</div>` : ""}
+      ${clocMissingMessage}
 
       ${coverageChart ? `<div class="card">${coverageChart}</div>` : ""}
 
