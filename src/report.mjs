@@ -83,6 +83,22 @@ function formatDuration(ms) {
   return `${hours}h ${remMinutes}m`;
 }
 
+function formatNumber(value, decimals = 2) {
+  if (value == null || Number.isNaN(value)) return "-";
+  return Number(value).toFixed(decimals);
+}
+
+function formatDelta(value, { decimals = 2, unit = "", direction = "higher" } = {}) {
+  if (value == null || Number.isNaN(value)) return { text: "-", className: "delta-flat" };
+  if (value === 0) return { text: "0", className: "delta-flat" };
+  const sign = value > 0 ? "+" : "-";
+  const absText = formatNumber(Math.abs(value), decimals);
+  const text = `${sign}${absText}${unit}`;
+  if (direction === "neutral") return { text, className: "delta-flat" };
+  const isGood = direction === "higher" ? value > 0 : value < 0;
+  return { text, className: isGood ? "delta-up" : "delta-down" };
+}
+
 function readMetricsFile(filePath) {
   const data = JSON.parse(fs.readFileSync(filePath, "utf8"));
   const generatedAt = data.generatedAt ? new Date(data.generatedAt) : null;
@@ -117,12 +133,30 @@ const CLOC_Y_MAX_TIERS = [
   2000000,
 ];
 
-const getClocTieredMax = (value) => {
+const DURATION_MS_TIERS = [100, 250, 500, 1000, 2000, 3000];
+const DURATION_S_TIERS = [5, 10, 20, 30, 60, 120, 300, 600];
+const DURATION_MS_THRESHOLD = 3000;
+
+const getTieredMax = (value, tiers) => {
   if (typeof value !== "number" || Number.isNaN(value)) return null;
-  for (const tier of CLOC_Y_MAX_TIERS) {
+  for (const tier of tiers) {
     if (value <= tier) return tier;
   }
-  return CLOC_Y_MAX_TIERS[CLOC_Y_MAX_TIERS.length - 1];
+  return tiers[tiers.length - 1] ?? null;
+};
+
+const getClocTieredMax = (value) => getTieredMax(value, CLOC_Y_MAX_TIERS);
+
+const getDurationMaxMs = (series) => {
+  let maxValue = null;
+  for (const point of series) {
+    const value = point?.testsSummary?.durationMs;
+    if (typeof value !== "number" || Number.isNaN(value)) continue;
+    if (maxValue == null || value > maxValue) {
+      maxValue = value;
+    }
+  }
+  return maxValue;
 };
 
 const getMaxSeriesValue = (series) => {
@@ -497,6 +531,25 @@ export function buildReport(config) {
       ? { summary: latestFallback.testsSummary, date: latestFallback.date }
       : null;
 
+  const latestSeries = metricsSeries.at(-1) ?? null;
+  const previousSeries = metricsSeries.length > 1 ? metricsSeries.at(-2) : null;
+  const deltaCoverage =
+    latestSeries?.coverageOverall?.lines?.pct != null && previousSeries?.coverageOverall?.lines?.pct != null
+      ? latestSeries.coverageOverall.lines.pct - previousSeries.coverageOverall.lines.pct
+      : null;
+  const deltaPassRate =
+    latestSeries?.testsSummary?.passRate != null && previousSeries?.testsSummary?.passRate != null
+      ? latestSeries.testsSummary.passRate - previousSeries.testsSummary.passRate
+      : null;
+  const deltaDurationMs =
+    latestSeries?.testsSummary?.durationMs != null && previousSeries?.testsSummary?.durationMs != null
+      ? latestSeries.testsSummary.durationMs - previousSeries.testsSummary.durationMs
+      : null;
+  const deltaCloc =
+    latestSeries?.clocTotal != null && previousSeries?.clocTotal != null
+      ? latestSeries.clocTotal - previousSeries.clocTotal
+      : null;
+
   const clocChartConfig = reportConfig.charts?.cloc ?? {};
   const clocSeries = [];
   if (clocChartConfig.showTotal !== false) {
@@ -563,6 +616,15 @@ export function buildReport(config) {
         });
 
   const passRateChartConfig = reportConfig.charts?.passRateDuration ?? {};
+  const durationMaxMs = getDurationMaxMs(metricsSeries);
+  const canAutoTierDuration = passRateChartConfig.yRightMax == null && durationMaxMs != null;
+  const useDurationMs = canAutoTierDuration && durationMaxMs < DURATION_MS_THRESHOLD;
+  const durationUnit = useDurationMs ? "ms" : "s";
+  const durationMax = canAutoTierDuration
+    ? useDurationMs
+      ? getTieredMax(durationMaxMs, DURATION_MS_TIERS)
+      : getTieredMax(durationMaxMs / 1000, DURATION_S_TIERS)
+    : null;
   const passRateDurationChart =
     passRateChartConfig.enabled === false
       ? ""
@@ -580,18 +642,23 @@ export function buildReport(config) {
           ],
           rightSeries: [
             {
-              name: "Duration (s)",
+              name: `Duration (${durationUnit})`,
               color: passRateChartConfig.durationColor ?? "#edc949",
               points: metricsSeries.map((p) => ({
                 label: p.label,
-                value: p.testsSummary?.durationMs != null ? p.testsSummary.durationMs / 1000 : null,
+                value:
+                  p.testsSummary?.durationMs != null
+                    ? useDurationMs
+                      ? p.testsSummary.durationMs
+                      : p.testsSummary.durationMs / 1000
+                    : null,
               })),
             },
           ],
           yLeftMin: passRateChartConfig.yLeftMin ?? 0,
           yLeftMax: passRateChartConfig.yLeftMax ?? 100,
           yRightMin: passRateChartConfig.yRightMin ?? 0,
-          yRightMax: passRateChartConfig.yRightMax ?? 10,
+          yRightMax: passRateChartConfig.yRightMax ?? durationMax ?? 10,
           chart: chartConfig,
         });
 
@@ -621,6 +688,14 @@ export function buildReport(config) {
           chart: chartConfig,
         });
 
+  const coverageDelta = formatDelta(deltaCoverage, { decimals: 2, unit: "%", direction: "higher" });
+  const passRateDelta = formatDelta(deltaPassRate, { decimals: 2, unit: "%", direction: "higher" });
+  const durationDelta = formatDelta(
+    deltaDurationMs != null ? deltaDurationMs / 1000 : null,
+    { decimals: 2, unit: "s", direction: "lower" }
+  );
+  const clocDelta = formatDelta(deltaCloc, { decimals: 0, unit: "", direction: "neutral" });
+
   const html = `<!doctype html>
 <html lang="en">
   <head>
@@ -628,6 +703,8 @@ export function buildReport(config) {
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>${reportConfig.title ?? "Metrics Report"}</title>
     <style>
+      @import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=Newsreader:opsz,wght@6..72,500;6..72,700&display=swap");
+
       :root {
         color-scheme: light;
         --bg: ${theme.background ?? "#0f1115"};
@@ -637,6 +714,10 @@ export function buildReport(config) {
         --text: ${theme.text ?? "#e6e9ef"};
         --grid: ${theme.grid ?? "#2a2f3a"};
         --axis: ${theme.axis ?? "#4b5263"};
+        --accent: ${theme.accent ?? "#60a5fa"};
+        --accent-2: ${theme.accentAlt ?? "#f59e0b"};
+        --shadow: 0 20px 50px rgba(0, 0, 0, 0.25);
+        --radius: 16px;
       }
       body {
         margin: 0;
@@ -644,15 +725,28 @@ export function buildReport(config) {
         background: radial-gradient(1200px 500px at 20% 0%, var(--bg-accent), var(--bg));
         color: var(--text);
       }
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        background-image: linear-gradient(transparent 95%, rgba(255, 255, 255, 0.03) 95%),
+          linear-gradient(90deg, transparent 95%, rgba(255, 255, 255, 0.03) 95%);
+        background-size: 36px 36px;
+        pointer-events: none;
+        z-index: 0;
+      }
       main {
-        max-width: 1000px;
+        max-width: 1100px;
         margin: 0 auto;
         padding: 32px 24px 56px;
+        position: relative;
+        z-index: 1;
       }
       h1 {
-        font-size: 28px;
-        letter-spacing: 0.2px;
+        font-size: 34px;
+        letter-spacing: -0.02em;
         margin: 0 0 6px;
+        font-family: "Newsreader", "Times New Roman", serif;
       }
       .sub {
         color: var(--muted);
@@ -661,10 +755,60 @@ export function buildReport(config) {
       .card {
         background: var(--panel);
         border: 1px solid #222836;
-        border-radius: 12px;
-        padding: 16px;
+        border-radius: var(--radius);
+        padding: 16px 18px;
         margin-bottom: 24px;
-        box-shadow: 0 12px 30px rgba(0,0,0,0.18);
+        box-shadow: var(--shadow);
+      }
+      .hero-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 16px;
+        margin-bottom: 24px;
+      }
+      .metric-card {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .metric-card .label {
+        color: var(--muted);
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+      }
+      .metric-card .value {
+        font-size: 26px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+      }
+      .delta {
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+      }
+      .delta-up {
+        color: #4ade80;
+      }
+      .delta-down {
+        color: #f87171;
+      }
+      .delta-flat {
+        color: var(--muted);
+      }
+      .info {
+        font-size: 13px;
+        color: var(--muted);
+        line-height: 1.6;
+      }
+      .code {
+        background: #0c0f15;
+        border: 1px solid #232a38;
+        border-radius: 12px;
+        padding: 12px 14px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+        font-size: 12.5px;
+        color: #c7d2fe;
       }
       .grid {
         stroke: var(--grid);
@@ -730,6 +874,33 @@ export function buildReport(config) {
             )}</div>`
           : ""
       }
+
+      <div class="hero-grid">
+        <div class="card metric-card">
+          <div class="label">Coverage (lines)</div>
+          <div class="value">${latestCoverage?.overall?.lines?.pct != null ? `${formatNumber(latestCoverage.overall.lines.pct, 2)}%` : "-"}</div>
+          <div class="delta ${coverageDelta.className}">${coverageDelta.text}</div>
+          <div class="info">Latest coverage change vs previous run.</div>
+        </div>
+        <div class="card metric-card">
+          <div class="label">Pass rate</div>
+          <div class="value">${latestTestSummary?.summary?.passRate != null ? `${formatNumber(latestTestSummary.summary.passRate, 2)}%` : "-"}</div>
+          <div class="delta ${passRateDelta.className}">${passRateDelta.text}</div>
+          <div class="info">Overall tests passing ratio.</div>
+        </div>
+        <div class="card metric-card">
+          <div class="label">Test duration</div>
+          <div class="value">${latestTestSummary?.summary?.durationMs != null ? formatDuration(latestTestSummary.summary.durationMs) : "-"}</div>
+          <div class="delta ${durationDelta.className}">${durationDelta.text}</div>
+          <div class="info">Shorter is better. Delta is seconds.</div>
+        </div>
+        <div class="card metric-card">
+          <div class="label">Code lines</div>
+          <div class="value">${latestCloc?.total ?? "-"}</div>
+          <div class="delta ${clocDelta.className}">${clocDelta.text}</div>
+          <div class="info">Total LOC from cloc snapshots.</div>
+        </div>
+      </div>
 
       ${clocChart ? `<div class="card">${clocChart}</div>` : ""}
       ${clocMissingMessage}
@@ -826,6 +997,15 @@ export function buildReport(config) {
       </div>`
           : ""
       }
+
+      <div class="card">
+        <div class="chart-title">Quick commands</div>
+        <div class="info">Run metrics and rebuild the report in your project.</div>
+        <div class="code">
+          npx @gfdlr/lighthouse-metrics run<br />
+          npx @gfdlr/lighthouse-metrics serve --open
+        </div>
+      </div>
     </main>
   </body>
 </html>`;

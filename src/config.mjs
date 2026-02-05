@@ -156,8 +156,7 @@ const DEFAULTS = {
         durationColor: "#edc949",
         yLeftMin: 0,
         yLeftMax: 100,
-        yRightMin: 0,
-        yRightMax: 10
+        yRightMin: 0
       },
       testCategoryCoverage: {
         enabled: true,
