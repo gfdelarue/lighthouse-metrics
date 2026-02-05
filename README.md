@@ -55,6 +55,7 @@ Themes:
 - `neon-hud`
 Themes can also change the report layout.
 Themes live in `src/report-themes/` and are loaded by filename.
+Layouts live in `src/report-layouts/` and are selected by the theme `layout` field.
 
 Add a new theme by copying an existing JSON file in `src/report-themes/` and setting `layout` to `minimal` or `hud`.
 

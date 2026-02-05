@@ -8,6 +8,8 @@ This doc covers how to add or update report themes.
 3. Set `"layout"` to one of:
    - `minimal` for the simple single-column layout
    - `hud` for the neon/gamified layout
+
+Layouts are implemented in `src/report-layouts/` as `.cjs` modules. See `src/report-layouts/README.md` for layout details.
 4. Update the token values.
 
 The theme name is the filename without `.json`. For example: `minimal.json` -> `minimal`.
@@ -39,7 +41,7 @@ npx @gfdlr/lighthouse-metrics serve --open
 ```
 
 ## Common pitfalls
-- Missing `"layout"`: the layout defaults based on theme name, which may be wrong for custom themes.
+- Missing `"layout"`: defaults to `minimal` (except the built-in `neon-hud` theme). Always set it for custom themes.
 - Low contrast chart text: check `axis`, `grid`, and legend colors.
 - Over-strong shadows: a heavy `shadow` can reduce legibility on dense charts.
 

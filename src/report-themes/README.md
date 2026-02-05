@@ -1,6 +1,7 @@
 # Report Themes
 
 Themes live in this directory as JSON files. Each theme is a full set of design tokens used by the report HTML/CSS.
+Layouts live in `src/report-layouts/` and are selected by the theme `layout` field. See `src/report-layouts/README.md` for layout details.
 
 ## Add a theme
 1. Copy an existing theme file (for example `minimal.json`).

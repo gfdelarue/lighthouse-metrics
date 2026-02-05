@@ -14,6 +14,7 @@ Thanks for helping improve lighthouse-metrics! This guide covers how to contribu
 
 ## Report themes
 Themes live in `src/report-themes/`. Each theme is a JSON file containing design tokens used by the report layout.
+Layouts live in `src/report-layouts/` and control the report structure.
 
 Guidelines:
 - Keep tokens consistent with existing files.
