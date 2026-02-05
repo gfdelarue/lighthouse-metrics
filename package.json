@@ -1,6 +1,6 @@
 {
   "name": "@gfdlr/lighthouse-metrics",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Cross-platform metrics CLI for tests, coverage, and cloc",
   "type": "module",
   "license": "Apache-2.0",
