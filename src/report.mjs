@@ -1,7 +1,49 @@
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
 
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const THEME_DIR = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "report-themes"
+);
+const DEFAULT_THEME_NAME = "minimal";
+
+const loadThemeByName = (name) => {
+  const normalized = String(name).trim().toLowerCase();
+  if (!/^[a-z0-9-_]+$/.test(normalized)) {
+    throw new Error(`Invalid theme name "${name}".`);
+  }
+  const themePath = path.join(THEME_DIR, `${normalized}.json`);
+  if (!fs.existsSync(themePath)) {
+    throw new Error(`Unknown report theme "${name}".`);
+  }
+  const raw = fs.readFileSync(themePath, "utf8");
+  try {
+    return JSON.parse(raw);
+  } catch (error) {
+    throw new Error(`Failed to parse theme "${name}": ${error.message}`);
+  }
+};
+
+const resolveThemeName = (themeValue) => {
+  if (typeof themeValue === "string" && themeValue.trim().length > 0) {
+    return themeValue.trim().toLowerCase();
+  }
+  return DEFAULT_THEME_NAME;
+};
+
+const resolveThemeTokens = (themeValue) => {
+  const baseTheme = loadThemeByName(DEFAULT_THEME_NAME);
+  if (typeof themeValue === "string" && themeValue.trim().length > 0) {
+    return { ...baseTheme, ...loadThemeByName(themeValue) };
+  }
+  if (themeValue && typeof themeValue === "object" && !Array.isArray(themeValue)) {
+    return { ...baseTheme, ...themeValue };
+  }
+  return baseTheme;
+};
 
 const parseTimestamp = (value, format, useLocalTime) => {
   const tokens = [];
@@ -480,7 +522,9 @@ export function buildReport(config) {
   const reportPath = path.resolve(root, config.reportFile);
   const reportConfig = config.report ?? {};
   const chartConfig = reportConfig.chart ?? {};
-  const theme = reportConfig.theme ?? {};
+  const themeName = resolveThemeName(reportConfig.theme);
+  const theme = resolveThemeTokens(reportConfig.theme ?? DEFAULT_THEME_NAME);
+  const layoutName = theme.layout ?? (themeName === "neon-hud" ? "hud" : "minimal");
   const useLocalTime = reportConfig.useLocalTime ?? false;
 
   const historyPattern = config.history?.filePattern ?? "metrics-{timestamp}.json";
@@ -696,136 +740,228 @@ export function buildReport(config) {
   );
   const clocDelta = formatDelta(deltaCloc, { decimals: 0, unit: "", direction: "neutral" });
 
-  const html = `<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>${reportConfig.title ?? "Metrics Report"}</title>
-    <style>
-      @import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=Newsreader:opsz,wght@6..72,500;6..72,700&display=swap");
+  const generatedStamp = formatDateShort(new Date(), useLocalTime);
+  const reportTitle = reportConfig.title ?? "Metrics Report";
+
+  // Gamification helpers
+  const getLevelFromCoverage = (pct) => {
+    if (pct == null) return { level: 1, title: "NOVICE", color: "#ff6b6b" };
+    if (pct >= 95) return { level: 10, title: "LEGEND", color: "#ffd700" };
+    if (pct >= 90) return { level: 9, title: "MASTER", color: "#ff9f43" };
+    if (pct >= 85) return { level: 8, title: "EXPERT", color: "#ee5a6f" };
+    if (pct >= 80) return { level: 7, title: "ELITE", color: "#a55eea" };
+    if (pct >= 75) return { level: 6, title: "VETERAN", color: "#26de81" };
+    if (pct >= 70) return { level: 5, title: "ADEPT", color: "#20bf6b" };
+    if (pct >= 60) return { level: 4, title: "SKILLED", color: "#45aaf2" };
+    if (pct >= 50) return { level: 3, title: "APPRENTICE", color: "#4b7bec" };
+    if (pct >= 40) return { level: 2, title: "TRAINEE", color: "#778ca3" };
+    return { level: 1, title: "NOVICE", color: "#ff6b6b" };
+  };
+
+  const getPassRateRank = (rate) => {
+    if (rate == null) return { rank: "F", color: "#ff6b6b", glow: "rgba(255, 107, 107, 0.5)" };
+    if (rate >= 99) return { rank: "S", color: "#ffd700", glow: "rgba(255, 215, 0, 0.6)" };
+    if (rate >= 95) return { rank: "A", color: "#26de81", glow: "rgba(38, 222, 129, 0.5)" };
+    if (rate >= 90) return { rank: "B", color: "#45aaf2", glow: "rgba(69, 170, 242, 0.5)" };
+    if (rate >= 80) return { rank: "C", color: "#fdcb6e", glow: "rgba(253, 203, 110, 0.5)" };
+    if (rate >= 70) return { rank: "D", color: "#ff9f43", glow: "rgba(255, 159, 67, 0.5)" };
+    return { rank: "F", color: "#ff6b6b", glow: "rgba(255, 107, 107, 0.5)" };
+  };
+
+  const coverageLevel = getLevelFromCoverage(latestCoverage?.overall?.lines?.pct);
+  const passRateRank = getPassRateRank(latestTestSummary?.summary?.passRate);
+
+  const cssMinimal = `
+      @import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap");
 
       :root {
-        color-scheme: light;
-        --bg: ${theme.background ?? "#0f1115"};
-        --bg-accent: ${theme.backgroundAccent ?? "#1a1f2b"};
-        --panel: ${theme.panel ?? "#171a21"};
-        --muted: ${theme.muted ?? "#a3acc2"};
-        --text: ${theme.text ?? "#e6e9ef"};
-        --grid: ${theme.grid ?? "#2a2f3a"};
-        --axis: ${theme.axis ?? "#4b5263"};
-        --accent: ${theme.accent ?? "#60a5fa"};
-        --accent-2: ${theme.accentAlt ?? "#f59e0b"};
-        --shadow: 0 20px 50px rgba(0, 0, 0, 0.25);
-        --radius: 16px;
+        color-scheme: ${theme.colorScheme ?? "light"};
+        --bg: ${theme.bg ?? "#f4f2ec"};
+        --bg-panel: ${theme.bgPanel ?? "#fbf8f1"};
+        --bg-card: ${theme.bgCard ?? "#f1ede6"};
+        --ink: ${theme.ink ?? "#1b1a17"};
+        --muted: ${theme.muted ?? "#6a665f"};
+        --grid: ${theme.grid ?? "#d7d1c6"};
+        --axis: ${theme.axis ?? "#a19a8e"};
+        --neon-cyan: ${theme.neonCyan ?? "#1f6f5c"};
+        --neon-pink: ${theme.neonPink ?? "#a44f67"};
+        --neon-yellow: ${theme.neonYellow ?? "#c5972e"};
+        --neon-green: ${theme.neonGreen ?? "#2f855a"};
+        --neon-purple: ${theme.neonPurple ?? "#6b5aa9"};
+        --neon-orange: ${theme.neonOrange ?? "#d06b3d"};
+        --border: ${theme.border ?? "rgba(27, 26, 23, 0.12)"};
+        --shadow: ${theme.shadow ?? "0 24px 40px rgba(41, 36, 28, 0.12)"};
+        --radius: ${theme.radius ?? "8px"};
       }
+
+      * {
+        box-sizing: border-box;
+      }
+
       body {
         margin: 0;
         font-family: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
-        background: radial-gradient(1200px 500px at 20% 0%, var(--bg-accent), var(--bg));
-        color: var(--text);
+        background: var(--bg);
+        color: var(--ink);
       }
-      body::before {
-        content: "";
-        position: fixed;
-        inset: 0;
-        background-image: linear-gradient(transparent 95%, rgba(255, 255, 255, 0.03) 95%),
-          linear-gradient(90deg, transparent 95%, rgba(255, 255, 255, 0.03) 95%);
-        background-size: 36px 36px;
-        pointer-events: none;
-        z-index: 0;
-      }
+
       main {
-        max-width: 1100px;
+        max-width: 980px;
         margin: 0 auto;
-        padding: 32px 24px 56px;
-        position: relative;
-        z-index: 1;
+        padding: 32px 20px 64px;
       }
+
+      h1, h2, h3 {
+        margin: 0;
+        font-weight: 600;
+      }
+
       h1 {
-        font-size: 34px;
-        letter-spacing: -0.02em;
-        margin: 0 0 6px;
-        font-family: "Newsreader", "Times New Roman", serif;
+        font-size: 28px;
+        letter-spacing: -0.01em;
       }
+
+      .header {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 16px;
+        align-items: end;
+        margin-bottom: 24px;
+      }
+
+      .eyebrow {
+        text-transform: uppercase;
+        letter-spacing: 0.24em;
+        font-size: 10px;
+        color: var(--muted);
+        margin-bottom: 8px;
+      }
+
       .sub {
         color: var(--muted);
-        margin-bottom: 24px;
+        margin-top: 8px;
+        font-size: 14px;
       }
-      .card {
-        background: var(--panel);
-        border: 1px solid #222836;
-        border-radius: var(--radius);
-        padding: 16px 18px;
-        margin-bottom: 24px;
-        box-shadow: var(--shadow);
-      }
-      .hero-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-        gap: 16px;
-        margin-bottom: 24px;
-      }
-      .metric-card {
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-      }
-      .metric-card .label {
+
+      .stamp {
+        font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+        font-size: 11px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 6px 12px;
         color: var(--muted);
+        background: var(--bg-panel);
+      }
+
+      .section-label {
+        text-transform: uppercase;
+        letter-spacing: 0.2em;
+        font-size: 10px;
+        color: var(--muted);
+        margin: 24px 0 10px;
+      }
+
+      .card {
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 16px;
+        box-shadow: var(--shadow);
+        margin-bottom: 16px;
+      }
+
+      .chart-title {
+        font-size: 14px;
+        margin-bottom: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .chart-title::after {
+        content: "";
+        height: 2px;
+        width: 48px;
+        background: linear-gradient(90deg, var(--neon-cyan), transparent);
+        border-radius: 999px;
+      }
+
+      .overview {
+        display: grid;
+        gap: 12px;
+      }
+
+      .metric-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding-bottom: 12px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .metric-row:last-child {
+        border-bottom: none;
+        padding-bottom: 0;
+      }
+
+      .metric-label {
         font-size: 12px;
         text-transform: uppercase;
         letter-spacing: 0.12em;
+        color: var(--muted);
       }
-      .metric-card .value {
-        font-size: 26px;
+
+      .metric-value {
+        font-size: 22px;
         font-weight: 600;
-        letter-spacing: -0.01em;
       }
+
+      .metric-meta {
+        text-align: right;
+        display: grid;
+        gap: 4px;
+      }
+
+      .metric-note {
+        font-size: 12px;
+        color: var(--muted);
+      }
+
       .delta {
         font-size: 12px;
         font-weight: 600;
-        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
       }
+
       .delta-up {
-        color: #4ade80;
+        color: var(--neon-green);
       }
+
       .delta-down {
-        color: #f87171;
+        color: var(--neon-pink);
       }
+
       .delta-flat {
         color: var(--muted);
       }
-      .info {
-        font-size: 13px;
-        color: var(--muted);
-        line-height: 1.6;
-      }
-      .code {
-        background: #0c0f15;
-        border: 1px solid #232a38;
-        border-radius: 12px;
-        padding: 12px 14px;
-        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-        font-size: 12.5px;
-        color: #c7d2fe;
-      }
+
       .grid {
         stroke: var(--grid);
         stroke-width: 1;
       }
+
       .axis {
         stroke: var(--axis);
         stroke-width: 1;
       }
+
       .axis-label {
         fill: var(--muted);
         font-size: 10px;
       }
-      .chart-title {
-        font-size: 16px;
-        margin-bottom: 8px;
-      }
+
       .legend {
         display: flex;
         gap: 12px;
@@ -833,75 +969,887 @@ export function buildReport(config) {
         color: var(--muted);
         font-size: 12px;
       }
+
       .legend-item {
         display: inline-flex;
         align-items: center;
         gap: 6px;
       }
+
       .legend-dot {
         width: 10px;
         height: 10px;
         border-radius: 50%;
       }
+
+      .chart svg {
+        width: 100%;
+        height: auto;
+      }
+
       table {
         width: 100%;
         border-collapse: collapse;
         font-size: 13px;
       }
+
       th, td {
         text-align: left;
-        padding: 8px;
-        border-bottom: 1px solid #232a38;
+        padding: 10px;
+        border-bottom: 1px solid var(--border);
       }
+
       th {
         color: var(--muted);
         font-weight: 600;
       }
+
+      .code {
+        background: #1e1b17;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 12px;
+        font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+        font-size: 12px;
+        color: #bfe5d2;
+        margin-top: 10px;
+      }
+
       .empty {
         color: var(--muted);
         padding: 12px 0;
       }
-    </style>
-  </head>
-  <body>
-    <main>
-      <h1>${reportConfig.title ?? "Metrics Report"}</h1>
-      ${
-        reportConfig.subtitle
-          ? `<div class="sub">${reportConfig.subtitle.replace(
-              "{date}",
-              formatDateShort(new Date(), useLocalTime)
-            )}</div>`
-          : ""
+
+      @media (max-width: 840px) {
+        .header {
+          grid-template-columns: 1fr;
+          align-items: start;
+        }
+        .stamp {
+          justify-self: start;
+        }
+        .metric-row {
+          flex-direction: column;
+          align-items: flex-start;
+        }
+        .metric-meta {
+          text-align: left;
+        }
+      }
+  `;
+
+  const cssHud = `
+      @import url("https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&display=swap");
+
+      :root {
+        color-scheme: ${theme.colorScheme ?? "dark"};
+        --bg: ${theme.bg ?? "#0a0a0f"};
+        --bg-panel: ${theme.bgPanel ?? "#12121a"};
+        --bg-card: ${theme.bgCard ?? "#1a1a25"};
+        --ink: ${theme.ink ?? "#e8e8f0"};
+        --muted: ${theme.muted ?? "#6b6b80"};
+        --grid: ${theme.grid ?? "#252535"};
+        --axis: ${theme.axis ?? "#3a3a50"};
+        --neon-cyan: ${theme.neonCyan ?? "#00f5ff"};
+        --neon-pink: ${theme.neonPink ?? "#ff006e"};
+        --neon-yellow: ${theme.neonYellow ?? "#ffea00"};
+        --neon-green: ${theme.neonGreen ?? "#39ff14"};
+        --neon-purple: ${theme.neonPurple ?? "#bf00ff"};
+        --neon-orange: ${theme.neonOrange ?? "#ff6b35"};
+        --border: ${theme.border ?? "rgba(0, 245, 255, 0.2)"};
+        --shadow: ${theme.shadow ?? "0 0 40px rgba(0, 245, 255, 0.1)"};
+        --radius: ${theme.radius ?? "4px"};
+        --scanline: ${theme.scanline ?? "rgba(0, 0, 0, 0.1)"};
+        --grid-line: ${theme.gridLine ?? "rgba(0, 245, 255, 0.03)"};
+        --title-glow: ${theme.titleGlow ?? "rgba(0, 245, 255, 0.5)"};
+        --top-glow: ${theme.topGlow ?? "rgba(0, 245, 255, 0.05)"};
+        --eyebrow-glow: ${theme.eyebrowGlow ?? "rgba(0, 245, 255, 0.5)"};
+        --stamp-glow: ${theme.stampGlow ?? "rgba(255, 234, 0, 0.1)"};
+        --section-glow: ${theme.sectionGlow ?? "rgba(191, 0, 255, 0.4)"};
+        --card-glow: ${theme.cardGlow ?? "0 0 0 1px rgba(0, 245, 255, 0.1), inset 0 0 40px rgba(0, 245, 255, 0.02)"};
+        --panel-divider: ${theme.panelDivider ?? "rgba(0, 245, 255, 0.2)"};
+        --stat-card-glow: ${theme.statCardGlow ?? "rgba(0, 245, 255, 0.05)"};
+        --stat-card-border: ${theme.statCardBorder ?? "rgba(0, 245, 255, 0.15)"};
+        --stat-card-border-hover: ${theme.statCardBorderHover ?? "rgba(0, 245, 255, 0.4)"};
+        --stat-card-shadow: ${theme.statCardShadow ?? "0 0 30px rgba(0, 245, 255, 0.1)"};
+        --progress-track: ${theme.progressTrack ?? "rgba(0, 0, 0, 0.4)"};
+        --progress-border: ${theme.progressBorder ?? "rgba(255, 255, 255, 0.1)"};
+        --progress-shimmer: ${theme.progressShimmer ?? "rgba(255, 255, 255, 0.3)"};
+        --progress-health: ${theme.progressHealth ?? "linear-gradient(90deg, #ff4757, #ff6b81, #ff4757)"};
+        --progress-health-glow: ${theme.progressHealthGlow ?? "0 0 10px rgba(255, 71, 87, 0.5)"};
+        --progress-xp: ${theme.progressXp ?? "linear-gradient(90deg, #3742fa, #5352ed, #3742fa)"};
+        --progress-xp-glow: ${theme.progressXpGlow ?? "0 0 10px rgba(55, 66, 250, 0.5)"};
+        --progress-energy: ${theme.progressEnergy ?? "linear-gradient(90deg, #2ed573, #7bed9f, #2ed573)"};
+        --progress-energy-glow: ${theme.progressEnergyGlow ?? "0 0 10px rgba(46, 213, 115, 0.5)"};
+        --progress-mana: ${theme.progressMana ?? "linear-gradient(90deg, #00d2d3, #54a0ff, #00d2d3)"};
+        --progress-mana-glow: ${theme.progressManaGlow ?? "0 0 10px rgba(0, 210, 211, 0.5)"};
+        --level-badge-bg: ${theme.levelBadgeBg ?? "rgba(255, 215, 0, 0.1)"};
+        --level-badge-border: ${theme.levelBadgeBorder ?? "rgba(255, 215, 0, 0.3)"};
+        --level-badge-color: ${theme.levelBadgeColor ?? "#ffd700"};
+        --level-badge-glow: ${theme.levelBadgeGlow ?? "rgba(255, 215, 0, 0.5)"};
+        --delta-up-bg: ${theme.deltaUpBg ?? "rgba(57, 255, 20, 0.1)"};
+        --delta-up-border: ${theme.deltaUpBorder ?? "rgba(57, 255, 20, 0.3)"};
+        --delta-up-glow: ${theme.deltaUpGlow ?? "rgba(57, 255, 20, 0.5)"};
+        --delta-down-bg: ${theme.deltaDownBg ?? "rgba(255, 0, 110, 0.1)"};
+        --delta-down-border: ${theme.deltaDownBorder ?? "rgba(255, 0, 110, 0.3)"};
+        --delta-down-glow: ${theme.deltaDownGlow ?? "rgba(255, 0, 110, 0.5)"};
+        --delta-flat-bg: ${theme.deltaFlatBg ?? "rgba(107, 107, 128, 0.1)"};
+        --delta-flat-border: ${theme.deltaFlatBorder ?? "rgba(107, 107, 128, 0.3)"};
+        --code-bg: ${theme.codeBg ?? "#0d0d12"};
+        --code-ink: ${theme.codeInk ?? "#39ff14"};
+        --code-glow: ${theme.codeGlow ?? "rgba(57, 255, 20, 0.3)"};
+        --table-border: ${theme.tableBorder ?? "rgba(0, 245, 255, 0.1)"};
+        --table-hover: ${theme.tableHover ?? "rgba(0, 245, 255, 0.03)"};
+        --xp-bg: ${theme.xpBg ?? "linear-gradient(135deg, rgba(191, 0, 255, 0.08), transparent)"};
+        --xp-border: ${theme.xpBorder ?? "rgba(191, 0, 255, 0.2)"};
+        --achievement-bg: ${theme.achievementBg ?? "rgba(255, 234, 0, 0.05)"};
+        --achievement-border: ${theme.achievementBorder ?? "rgba(255, 234, 0, 0.15)"};
+        --achievement-icon-glow: ${theme.achievementIconGlow ?? "rgba(255, 234, 0, 0.3)"};
       }
 
-      <div class="hero-grid">
-        <div class="card metric-card">
-          <div class="label">Coverage (lines)</div>
-          <div class="value">${latestCoverage?.overall?.lines?.pct != null ? `${formatNumber(latestCoverage.overall.lines.pct, 2)}%` : "-"}</div>
-          <div class="delta ${coverageDelta.className}">${coverageDelta.text}</div>
-          <div class="info">Latest coverage change vs previous run.</div>
-        </div>
-        <div class="card metric-card">
-          <div class="label">Pass rate</div>
-          <div class="value">${latestTestSummary?.summary?.passRate != null ? `${formatNumber(latestTestSummary.summary.passRate, 2)}%` : "-"}</div>
-          <div class="delta ${passRateDelta.className}">${passRateDelta.text}</div>
-          <div class="info">Overall tests passing ratio.</div>
-        </div>
-        <div class="card metric-card">
-          <div class="label">Test duration</div>
-          <div class="value">${latestTestSummary?.summary?.durationMs != null ? formatDuration(latestTestSummary.summary.durationMs) : "-"}</div>
-          <div class="delta ${durationDelta.className}">${durationDelta.text}</div>
-          <div class="info">Shorter is better. Delta is seconds.</div>
-        </div>
-        <div class="card metric-card">
-          <div class="label">Code lines</div>
-          <div class="value">${latestCloc?.total ?? "-"}</div>
-          <div class="delta ${clocDelta.className}">${clocDelta.text}</div>
-          <div class="info">Total LOC from cloc snapshots.</div>
-        </div>
-      </div>
+      * {
+        box-sizing: border-box;
+      }
 
+      body {
+        margin: 0;
+        font-family: "Rajdhani", "Segoe UI", system-ui, sans-serif;
+        background: var(--bg);
+        color: var(--ink);
+        min-height: 100vh;
+        overflow-x: hidden;
+      }
+
+      /* CRT Scanline Effect */
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        background: repeating-linear-gradient(
+          0deg,
+          var(--scanline),
+          var(--scanline) 1px,
+          transparent 1px,
+          transparent 2px
+        );
+        pointer-events: none;
+        z-index: 1000;
+        opacity: 0.5;
+      }
+
+      /* Grid Background */
+      body::after {
+        content: "";
+        position: fixed;
+        inset: 0;
+        background-image: 
+          linear-gradient(var(--grid-line) 1px, transparent 1px),
+          linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+        background-size: 50px 50px;
+        pointer-events: none;
+        z-index: 0;
+      }
+
+      main {
+        max-width: 1280px;
+        margin: 0 auto;
+        padding: 32px 24px 72px;
+        position: relative;
+        z-index: 1;
+      }
+
+      h1, h2, h3 {
+        font-family: "Orbitron", "Rajdhani", sans-serif;
+        font-weight: 700;
+        margin: 0;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+      }
+
+      h1 {
+        font-size: 28px;
+        background: linear-gradient(90deg, var(--neon-cyan), var(--neon-pink));
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        filter: drop-shadow(0 0 20px var(--title-glow));
+      }
+
+      /* Header */
+      .top {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 24px;
+        align-items: start;
+        margin-bottom: 32px;
+        padding: 24px;
+        background: linear-gradient(135deg, var(--bg-panel), var(--top-glow));
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        position: relative;
+        overflow: hidden;
+      }
+
+      .top::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 2px;
+        background: linear-gradient(90deg, var(--neon-cyan), var(--neon-pink), var(--neon-yellow));
+        animation: scanline 3s linear infinite;
+      }
+
+      @keyframes scanline {
+        0% { transform: translateX(-100%); }
+        100% { transform: translateX(100%); }
+      }
+
+      .eyebrow {
+        font-family: "Share Tech Mono", monospace;
+        text-transform: uppercase;
+        letter-spacing: 0.3em;
+        font-size: 11px;
+        color: var(--neon-cyan);
+        margin-bottom: 8px;
+        text-shadow: 0 0 10px var(--eyebrow-glow);
+      }
+
+      .sub {
+        color: var(--muted);
+        margin-top: 8px;
+        font-size: 14px;
+        letter-spacing: 0.05em;
+      }
+
+      .stamp {
+        font-family: "Share Tech Mono", monospace;
+        font-size: 11px;
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 8px 16px;
+        color: var(--neon-yellow);
+        text-transform: uppercase;
+        letter-spacing: 0.15em;
+        box-shadow: 0 0 20px var(--stamp-glow);
+      }
+
+      /* Layout */
+      .layout {
+        display: grid;
+        grid-template-columns: minmax(0, 320px) minmax(0, 1fr);
+        gap: 24px;
+      }
+
+      .rail {
+        display: grid;
+        gap: 20px;
+        align-content: start;
+      }
+
+      .deck {
+        display: grid;
+        gap: 20px;
+      }
+
+      .section-label {
+        font-family: "Orbitron", sans-serif;
+        text-transform: uppercase;
+        letter-spacing: 0.2em;
+        font-size: 12px;
+        color: var(--neon-purple);
+        margin: 0 0 12px;
+        text-shadow: 0 0 15px var(--section-glow);
+      }
+
+      /* Cards - HUD Style */
+      .card {
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 20px;
+        position: relative;
+        overflow: hidden;
+        box-shadow: var(--card-glow);
+      }
+
+      /* Corner accents */
+      .card::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 20px;
+        height: 20px;
+        border-top: 2px solid var(--neon-cyan);
+        border-left: 2px solid var(--neon-cyan);
+        border-radius: var(--radius) 0 0 0;
+      }
+
+      .card::after {
+        content: "";
+        position: absolute;
+        bottom: 0;
+        right: 0;
+        width: 20px;
+        height: 20px;
+        border-bottom: 2px solid var(--neon-pink);
+        border-right: 2px solid var(--neon-pink);
+        border-radius: 0 0 var(--radius) 0;
+      }
+
+      .card > * {
+        position: relative;
+        z-index: 1;
+      }
+
+      .card--chart {
+        padding: 24px;
+      }
+
+      /* Panel Title */
+      .panel-title {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        font-family: "Orbitron", sans-serif;
+        font-size: 12px;
+        color: var(--neon-cyan);
+        text-transform: uppercase;
+        letter-spacing: 0.15em;
+        margin-bottom: 16px;
+        padding-bottom: 12px;
+        border-bottom: 1px solid var(--panel-divider);
+      }
+
+      /* Stat Cards - Gaming Style */
+      .stat-card {
+        display: grid;
+        gap: 12px;
+        padding: 16px;
+        background: linear-gradient(135deg, var(--stat-card-glow), transparent);
+        border: 1px solid var(--stat-card-border);
+        border-radius: var(--radius);
+        position: relative;
+        transition: all 0.3s ease;
+      }
+
+      .stat-card:hover {
+        border-color: var(--stat-card-border-hover);
+        box-shadow: var(--stat-card-shadow);
+      }
+
+      .stat-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .stat-label {
+        font-family: "Share Tech Mono", monospace;
+        color: var(--muted);
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.15em;
+      }
+
+      .stat-icon {
+        width: 24px;
+        height: 24px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+      }
+
+      .stat-value-row {
+        display: flex;
+        align-items: baseline;
+        gap: 12px;
+      }
+
+      .stat-value {
+        font-family: "Orbitron", sans-serif;
+        font-size: 32px;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+      }
+
+      .stat-rank {
+        font-family: "Orbitron", sans-serif;
+        font-size: 24px;
+        font-weight: 900;
+        padding: 4px 12px;
+        border-radius: var(--radius);
+        text-shadow: 0 0 20px currentColor;
+      }
+
+      /* Progress Bars - Health/XP Style */
+      .progress-container {
+        display: grid;
+        gap: 8px;
+      }
+
+      .progress-header {
+        display: flex;
+        justify-content: space-between;
+        font-family: "Share Tech Mono", monospace;
+        font-size: 10px;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+      }
+
+      .progress-bar {
+        height: 8px;
+        background: var(--progress-track);
+        border-radius: 4px;
+        overflow: hidden;
+        position: relative;
+        border: 1px solid var(--progress-border);
+      }
+
+      .progress-fill {
+        height: 100%;
+        border-radius: 3px;
+        transition: width 1s ease-out;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .progress-fill::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(90deg, transparent, var(--progress-shimmer), transparent);
+        animation: shimmer 2s infinite;
+      }
+
+      @keyframes shimmer {
+        0% { transform: translateX(-100%); }
+        100% { transform: translateX(100%); }
+      }
+
+      .progress-fill.health {
+        background: var(--progress-health);
+        box-shadow: var(--progress-health-glow);
+      }
+
+      .progress-fill.xp {
+        background: var(--progress-xp);
+        box-shadow: var(--progress-xp-glow);
+      }
+
+      .progress-fill.energy {
+        background: var(--progress-energy);
+        box-shadow: var(--progress-energy-glow);
+      }
+
+      .progress-fill.mana {
+        background: var(--progress-mana);
+        box-shadow: var(--progress-mana-glow);
+      }
+
+      /* Level Badge */
+      .level-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 12px;
+        background: var(--level-badge-bg);
+        border: 1px solid var(--level-badge-border);
+        border-radius: var(--radius);
+        font-family: "Orbitron", sans-serif;
+        font-size: 11px;
+        color: var(--level-badge-color);
+        text-shadow: 0 0 10px var(--level-badge-glow);
+      }
+
+      .level-num {
+        font-size: 14px;
+        font-weight: 700;
+      }
+
+      /* Delta indicators */
+      .delta {
+        font-family: "Share Tech Mono", monospace;
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        padding: 4px 8px;
+        border-radius: 3px;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+      }
+
+      .delta-up {
+        color: var(--neon-green);
+        background: var(--delta-up-bg);
+        border: 1px solid var(--delta-up-border);
+        text-shadow: 0 0 10px var(--delta-up-glow);
+      }
+
+      .delta-down {
+        color: var(--neon-pink);
+        background: var(--delta-down-bg);
+        border: 1px solid var(--delta-down-border);
+        text-shadow: 0 0 10px var(--delta-down-glow);
+      }
+
+      .delta-flat {
+        color: var(--muted);
+        background: var(--delta-flat-bg);
+        border: 1px solid var(--delta-flat-border);
+      }
+
+      /* Code block */
+      .info {
+        font-size: 13px;
+        color: var(--muted);
+        line-height: 1.6;
+        letter-spacing: 0.02em;
+      }
+
+      .code {
+        background: var(--code-bg);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 16px;
+        font-family: "Share Tech Mono", ui-monospace, monospace;
+        font-size: 12px;
+        color: var(--code-ink);
+        margin-top: 12px;
+        text-shadow: 0 0 5px var(--code-glow);
+      }
+
+      /* Charts */
+      .grid {
+        stroke: var(--grid);
+        stroke-width: 1;
+      }
+
+      .axis {
+        stroke: var(--axis);
+        stroke-width: 1;
+      }
+
+      .axis-label {
+        fill: var(--muted);
+        font-size: 10px;
+        font-family: "Share Tech Mono", monospace;
+      }
+
+      .chart-title {
+        font-family: "Orbitron", sans-serif;
+        font-size: 14px;
+        margin-bottom: 16px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        color: var(--neon-cyan);
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+      }
+
+      .chart-title::after {
+        content: "";
+        height: 2px;
+        flex: 1;
+        margin-left: 16px;
+        background: linear-gradient(90deg, var(--neon-cyan), transparent);
+        border-radius: 999px;
+      }
+
+      .legend {
+        display: flex;
+        gap: 16px;
+        margin-bottom: 12px;
+        color: var(--muted);
+        font-size: 11px;
+        font-family: "Share Tech Mono", monospace;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+
+      .legend-item {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .legend-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 2px;
+        box-shadow: 0 0 10px currentColor;
+      }
+
+      .chart svg {
+        width: 100%;
+        height: auto;
+      }
+
+      /* Table */
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+      }
+
+      th, td {
+        text-align: left;
+        padding: 12px;
+        border-bottom: 1px solid var(--table-border);
+      }
+
+      th {
+        font-family: "Orbitron", sans-serif;
+        color: var(--neon-cyan);
+        font-weight: 600;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+      }
+
+      td {
+        color: var(--ink);
+        font-family: "Rajdhani", sans-serif;
+      }
+
+      tr:hover td {
+        background: var(--table-hover);
+      }
+
+      .empty {
+        color: var(--muted);
+        padding: 16px;
+        font-family: "Share Tech Mono", monospace;
+        text-align: center;
+      }
+
+      /* Stat Stack */
+      .stat-stack {
+        display: grid;
+        gap: 16px;
+      }
+
+      /* XP Bar Section */
+      .xp-section {
+        display: grid;
+        gap: 12px;
+        padding: 16px;
+        background: var(--xp-bg);
+        border: 1px solid var(--xp-border);
+        border-radius: var(--radius);
+      }
+
+      .xp-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .xp-title {
+        font-family: "Orbitron", sans-serif;
+        font-size: 11px;
+        color: var(--neon-purple);
+        text-transform: uppercase;
+        letter-spacing: 0.15em;
+      }
+
+      .xp-value {
+        font-family: "Share Tech Mono", monospace;
+        font-size: 12px;
+        color: var(--neon-yellow);
+      }
+
+      /* Achievement Badges */
+      .achievement {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px;
+        background: var(--achievement-bg);
+        border: 1px solid var(--achievement-border);
+        border-radius: var(--radius);
+      }
+
+      .achievement-icon {
+        width: 40px;
+        height: 40px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(135deg, var(--neon-yellow), var(--neon-orange));
+        border-radius: 50%;
+        font-size: 20px;
+        box-shadow: 0 0 20px var(--achievement-icon-glow);
+      }
+
+      .achievement-info {
+        flex: 1;
+      }
+
+      .achievement-name {
+        font-family: "Orbitron", sans-serif;
+        font-size: 12px;
+        color: var(--neon-yellow);
+        letter-spacing: 0.05em;
+      }
+
+      .achievement-desc {
+        font-size: 11px;
+        color: var(--muted);
+        margin-top: 2px;
+      }
+
+      /* Divider */
+      .divider {
+        height: 1px;
+        background: linear-gradient(90deg, transparent, var(--border), transparent);
+        margin: 16px 0;
+      }
+
+      .muted-line {
+        font-size: 11px;
+        color: var(--muted);
+        font-family: "Share Tech Mono", monospace;
+        text-align: center;
+        letter-spacing: 0.05em;
+      }
+
+      /* Responsive */
+      @media (max-width: 980px) {
+        .layout {
+          grid-template-columns: 1fr;
+        }
+        .top {
+          grid-template-columns: 1fr;
+          align-items: start;
+        }
+        .stamp {
+          justify-self: start;
+        }
+      }
+
+      /* Animations */
+      @keyframes glitch {
+        0%, 100% { transform: translate(0); }
+        20% { transform: translate(-2px, 2px); }
+        40% { transform: translate(-2px, -2px); }
+        60% { transform: translate(2px, 2px); }
+        80% { transform: translate(2px, -2px); }
+      }
+
+      @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.7; }
+      }
+
+      @keyframes fadeUp {
+        from {
+          opacity: 0;
+          transform: translateY(20px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      .reveal {
+        animation: fadeUp 600ms ease forwards;
+      }
+
+      .reveal:nth-child(2) { animation-delay: 80ms; }
+      .reveal:nth-child(3) { animation-delay: 160ms; }
+      .reveal:nth-child(4) { animation-delay: 240ms; }
+      .reveal:nth-child(5) { animation-delay: 320ms; }
+
+      .glitch:hover {
+        animation: glitch 0.3s ease infinite;
+      }
+
+      .pulse {
+        animation: pulse 2s ease infinite;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .reveal, .pulse, .glitch {
+          animation: none;
+        }
+      }
+  `;
+
+  const bodyMinimal = `
+    <main>
+      <header class="header">
+        <div>
+          <div class="eyebrow">Metrics report</div>
+          <h1>${reportTitle}</h1>
+          ${
+            reportConfig.subtitle
+              ? `<div class="sub">${reportConfig.subtitle.replace(
+                  "{date}",
+                  generatedStamp
+                )}</div>`
+              : `<div class="sub">Generated ${generatedStamp}.</div>`
+          }
+        </div>
+        <div class="stamp">Generated ${generatedStamp}</div>
+      </header>
+
+      <section class="card">
+        <div class="chart-title">Overview</div>
+        <div class="overview">
+          <div class="metric-row">
+            <div>
+              <div class="metric-label">Coverage (lines)</div>
+              <div class="metric-value">${latestCoverage?.overall?.lines?.pct != null ? `${formatNumber(latestCoverage.overall.lines.pct, 2)}%` : "-"}</div>
+            </div>
+            <div class="metric-meta">
+              <div class="delta ${coverageDelta.className}">${coverageDelta.text}</div>
+              <div class="metric-note">Change vs previous run</div>
+            </div>
+          </div>
+          <div class="metric-row">
+            <div>
+              <div class="metric-label">Pass rate</div>
+              <div class="metric-value">${latestTestSummary?.summary?.passRate != null ? `${formatNumber(latestTestSummary.summary.passRate, 2)}%` : "-"}</div>
+            </div>
+            <div class="metric-meta">
+              <div class="delta ${passRateDelta.className}">${passRateDelta.text}</div>
+              <div class="metric-note">Test success ratio</div>
+            </div>
+          </div>
+          <div class="metric-row">
+            <div>
+              <div class="metric-label">Test duration</div>
+              <div class="metric-value">${latestTestSummary?.summary?.durationMs != null ? formatDuration(latestTestSummary.summary.durationMs) : "-"}</div>
+            </div>
+            <div class="metric-meta">
+              <div class="delta ${durationDelta.className}">${durationDelta.text}</div>
+              <div class="metric-note">Lower is better</div>
+            </div>
+          </div>
+          <div class="metric-row">
+            <div>
+              <div class="metric-label">Code lines</div>
+              <div class="metric-value">${latestCloc?.total ?? "-"}</div>
+            </div>
+            <div class="metric-meta">
+              <div class="delta ${clocDelta.className}">${clocDelta.text}</div>
+              <div class="metric-note">Total LOC snapshot</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div class="section-label">Trends</div>
       ${clocChart ? `<div class="card">${clocChart}</div>` : ""}
       ${clocMissingMessage}
 
@@ -1000,15 +1948,270 @@ export function buildReport(config) {
 
       <div class="card">
         <div class="chart-title">Quick commands</div>
-        <div class="info">Run metrics and rebuild the report in your project.</div>
         <div class="code">
           npx @gfdlr/lighthouse-metrics run<br />
           npx @gfdlr/lighthouse-metrics serve --open
         </div>
       </div>
     </main>
+  `;
+
+  const bodyHud = `
+    <main>
+      <div class="top reveal">
+        <div>
+          <div class="eyebrow">⚡ Developer Metrics HUD v2.0</div>
+          <h1 class="glitch">${reportTitle}</h1>
+          ${
+            reportConfig.subtitle
+              ? `<div class="sub">${reportConfig.subtitle.replace(
+                  "{date}",
+                  generatedStamp
+                )}</div>`
+              : `<div class="sub">Session recorded: ${generatedStamp}</div>`
+          }
+        </div>
+        <div class="stamp pulse">● LIVE // ${generatedStamp}</div>
+      </div>
+
+      <div class="layout">
+        <aside class="rail">
+          <div class="card reveal">
+            <div class="panel-title">
+              <span>⚔️ Player Stats</span>
+              <span class="level-badge">
+                <span>LVL</span>
+                <span class="level-num">${coverageLevel.level}</span>
+              </span>
+            </div>
+            
+            <div class="stat-stack">
+              <div class="stat-card">
+                <div class="stat-header">
+                  <span class="stat-label">❤️ Coverage Health</span>
+                  <span class="stat-rank" style="color: ${coverageLevel.color}; text-shadow: 0 0 15px ${coverageLevel.color};">${coverageLevel.title}</span>
+                </div>
+                <div class="stat-value-row">
+                  <span class="stat-value" style="color: ${coverageLevel.color};">${latestCoverage?.overall?.lines?.pct != null ? formatNumber(latestCoverage.overall.lines.pct, 1) : "--"}%</span>
+                  <span class="delta ${coverageDelta.className}">${coverageDelta.text}</span>
+                </div>
+                <div class="progress-container" style="margin-top: 8px;">
+                  <div class="progress-bar">
+                    <div class="progress-fill health" style="width: ${latestCoverage?.overall?.lines?.pct ?? 0}%"></div>
+                  </div>
+                  <div class="progress-header">
+                    <span>HP</span>
+                    <span>${Math.round(latestCoverage?.overall?.lines?.pct ?? 0)}/100</span>
+                  </div>
+                </div>
+              </div>
+              
+              <div class="stat-card">
+                <div class="stat-header">
+                  <span class="stat-label">⭐ Pass Rate Rank</span>
+                  <span class="stat-rank" style="color: ${passRateRank.color}; text-shadow: 0 0 15px ${passRateRank.glow};">${passRateRank.rank}</span>
+                </div>
+                <div class="stat-value-row">
+                  <span class="stat-value" style="color: ${passRateRank.color};">${latestTestSummary?.summary?.passRate != null ? formatNumber(latestTestSummary.summary.passRate, 1) : "--"}%</span>
+                  <span class="delta ${passRateDelta.className}">${passRateDelta.text}</span>
+                </div>
+                <div class="progress-container" style="margin-top: 8px;">
+                  <div class="progress-bar">
+                    <div class="progress-fill energy" style="width: ${latestTestSummary?.summary?.passRate ?? 0}%"></div>
+                  </div>
+                  <div class="progress-header">
+                    <span>XP</span>
+                    <span>${Math.round(latestTestSummary?.summary?.passRate ?? 0)}/100</span>
+                  </div>
+                </div>
+              </div>
+              
+              <div class="stat-card">
+                <div class="stat-header">
+                  <span class="stat-label">⚡ Test Duration</span>
+                  <span class="stat-icon">⏱️</span>
+                </div>
+                <div class="stat-value-row">
+                  <span class="stat-value" style="color: var(--neon-yellow);">${latestTestSummary?.summary?.durationMs != null ? formatDuration(latestTestSummary.summary.durationMs) : "--"}</span>
+                  <span class="delta ${durationDelta.className}">${durationDelta.text}</span>
+                </div>
+                <div class="progress-container" style="margin-top: 8px;">
+                  <div class="progress-bar">
+                    <div class="progress-fill mana" style="width: ${Math.min(100, (latestTestSummary?.summary?.durationMs ?? 0) / 100)}%"></div>
+                  </div>
+                  <div class="progress-header">
+                    <span>MP</span>
+                    <span>${latestTestSummary?.summary?.durationMs ?? 0}ms</span>
+                  </div>
+                </div>
+              </div>
+              
+              <div class="stat-card">
+                <div class="stat-header">
+                  <span class="stat-label">💎 Code Score</span>
+                  <span class="stat-icon">💰</span>
+                </div>
+                <div class="stat-value-row">
+                  <span class="stat-value" style="color: var(--neon-purple);">${latestCloc?.total?.toLocaleString() ?? "--"}</span>
+                  <span class="delta ${clocDelta.className}">${clocDelta.text}</span>
+                </div>
+                <div class="progress-container" style="margin-top: 8px;">
+                  <div class="progress-bar">
+                    <div class="progress-fill xp" style="width: ${Math.min(100, Math.log10(latestCloc?.total ?? 1) * 10)}%"></div>
+                  </div>
+                  <div class="progress-header">
+                    <span>LINES</span>
+                    <span>${latestCloc?.total?.toLocaleString() ?? 0}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <div class="divider"></div>
+            <div class="muted-line">◄ STATS COMPARED VS PREVIOUS RUN ►</div>
+          </div>
+          
+          ${latestCoverage?.overall?.lines?.pct >= 80 ? `
+          <div class="card reveal">
+            <div class="panel-title">🏆 Achievement Unlocked</div>
+            <div class="achievement">
+              <div class="achievement-icon">🛡️</div>
+              <div class="achievement-info">
+                <div class="achievement-name">Code Guardian</div>
+                <div class="achievement-desc">Reach 80%+ coverage</div>
+              </div>
+            </div>
+          </div>
+          ` : ""}
+
+          <div class="card reveal">
+            <div class="panel-title">⌨️ Command Terminal</div>
+            <div class="info">Execute commands to rebuild metrics</div>
+            <div class="code">
+              > npx @gfdlr/lighthouse-metrics run<br />
+              > npx @gfdlr/lighthouse-metrics serve --open<br />
+              <span style="color: var(--muted);">_</span>
+            </div>
+          </div>
+        </aside>
+
+        <section class="deck">
+          <div class="section-label reveal">📊 Mission Trends</div>
+          ${clocChart ? `<div class="card card--chart reveal">${clocChart}</div>` : ""}
+          ${clocMissingMessage}
+
+          ${coverageChart ? `<div class="card card--chart reveal">${coverageChart}</div>` : ""}
+
+          ${passRateDurationChart ? `<div class="card card--chart reveal">${passRateDurationChart}</div>` : ""}
+
+          ${testCategoryChart ? `<div class="card card--chart reveal">${testCategoryChart}</div>` : ""}
+
+          ${
+            reportConfig.table?.enabled !== false
+              ? `<div class="card reveal">
+            <div class="chart-title">📋 Latest Snapshot Data</div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Metric</th>
+                  <th>Value</th>
+                  <th>Timestamp</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${
+                  reportConfig.table?.showCloc !== false
+                    ? `<tr>
+                  <td>💎 Total Code Lines</td>
+                  <td>${latestCloc?.total?.toLocaleString() ?? "-"}</td>
+                  <td>${latestCloc?.date ? formatDateShort(latestCloc.date, useLocalTime) : "-"}</td>
+                </tr>
+                <tr>
+                  <td>📘 TS Code Lines</td>
+                  <td>${latestCloc?.ts?.toLocaleString() ?? "-"}</td>
+                  <td>${latestCloc?.date ? formatDateShort(latestCloc.date, useLocalTime) : "-"}</td>
+                </tr>
+                <tr>
+                  <td>📗 TSX Code Lines</td>
+                  <td>${latestCloc?.tsx?.toLocaleString() ?? "-"}</td>
+                  <td>${latestCloc?.date ? formatDateShort(latestCloc.date, useLocalTime) : "-"}</td>
+                </tr>`
+                    : ""
+                }
+                ${
+                  reportConfig.table?.showCoverage !== false
+                    ? `<tr>
+                  <td>🎯 Coverage (Lines%)</td>
+                  <td>${latestCoverage?.overall?.lines?.pct?.toFixed(2) ?? "-"}%</td>
+                  <td>${latestCoverage?.date ? formatDateShort(latestCoverage.date, useLocalTime) : "-"}</td>
+                </tr>
+                <tr>
+                  <td>🔧 Coverage (Funcs%)</td>
+                  <td>${latestCoverage?.overall?.functions?.pct?.toFixed(2) ?? "-"}%</td>
+                  <td>${latestCoverage?.date ? formatDateShort(latestCoverage.date, useLocalTime) : "-"}</td>
+                </tr>
+                <tr>
+                  <td>🌿 Coverage (Branch%)</td>
+                  <td>${latestCoverage?.overall?.branches?.pct?.toFixed(2) ?? "-"}%</td>
+                  <td>${latestCoverage?.date ? formatDateShort(latestCoverage.date, useLocalTime) : "-"}</td>
+                </tr>
+                <tr>
+                  <td>📝 Coverage (Stmts%)</td>
+                  <td>${latestCoverage?.overall?.statements?.pct?.toFixed(2) ?? "-"}%</td>
+                  <td>${latestCoverage?.date ? formatDateShort(latestCoverage.date, useLocalTime) : "-"}</td>
+                </tr>`
+                    : ""
+                }
+                ${
+                  reportConfig.table?.showTests !== false
+                    ? `<tr>
+                  <td>✅ Tests Pass Rate</td>
+                  <td>${latestTestSummary?.summary?.passRate != null
+                    ? `${latestTestSummary.summary.passRate.toFixed(2)}%`
+                    : "-"}</td>
+                  <td>${latestTestSummary?.date ? formatDateShort(latestTestSummary.date, useLocalTime) : "-"}</td>
+                </tr>
+                <tr>
+                  <td>⏱️ Tests Duration</td>
+                  <td>${latestTestSummary?.summary?.durationMs != null
+                    ? formatDuration(latestTestSummary.summary.durationMs)
+                    : "-"}</td>
+                  <td>${latestTestSummary?.date ? formatDateShort(latestTestSummary.date, useLocalTime) : "-"}</td>
+                </tr>
+                <tr>
+                  <td>🎮 Tests Score (P/F/S)</td>
+                  <td>${latestTestSummary?.summary
+                    ? `${latestTestSummary.summary.total} <span style="color:var(--neon-green)">${latestTestSummary.summary.passed}</span>/<span style="color:var(--neon-pink)">${latestTestSummary.summary.failed}</span>/<span style="color:var(--neon-yellow)">${latestTestSummary.summary.skipped}</span>`
+                    : "-"}</td>
+                  <td>${latestTestSummary?.date ? formatDateShort(latestTestSummary.date, useLocalTime) : "-"}</td>
+                </tr>`
+                    : ""
+                }
+              </tbody>
+            </table>
+          </div>`
+              : ""
+          }
+        </section>
+      </div>
+    </main>
+  `;
+
+  const html = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${reportTitle}</title>
+    <style>
+${layoutName === "hud" ? cssHud : cssMinimal}
+    </style>
+  </head>
+  <body>
+${layoutName === "hud" ? bodyHud : bodyMinimal}
   </body>
 </html>`;
+
 
   fs.mkdirSync(reportDir, { recursive: true });
   fs.writeFileSync(reportPath, html, "utf8");

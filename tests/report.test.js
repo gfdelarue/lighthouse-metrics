@@ -17,9 +17,9 @@ const writeMetricsFiles = (root, data) => {
   );
 };
 
-const createProject = async (data) => {
+const createProject = async (data, overrides = {}) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "lighthouse-metrics-"));
-  const config = await loadConfig(root);
+  const config = await loadConfig(root, overrides);
   writeMetricsFiles(root, data);
   return { root, config };
 };
@@ -76,5 +76,25 @@ describe("report tiering and messages", () => {
     const html = fs.readFileSync(reportPath, "utf8");
     expect(html).toContain("Duration (s)");
     expect(html).toContain("5.00");
+  });
+
+  it("uses theme tokens from a named theme", async () => {
+    const { config } = await createProject(
+      {
+        generatedAt: "2026-02-05T13:31:55.035Z",
+        cloc: { total: { code: 120 } },
+        tests: { summary: { passRate: 100, durationMs: 2500, total: 1, passed: 1, failed: 0, skipped: 0 } },
+      },
+      {
+        report: {
+          theme: "neon-hud",
+        },
+      }
+    );
+
+    const reportPath = buildReport(config);
+    const html = fs.readFileSync(reportPath, "utf8");
+    expect(html).toContain("--bg: #0a0a0f");
+    expect(html).toContain("--neon-cyan: #00f5ff");
   });
 });

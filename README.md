@@ -50,6 +50,23 @@ Presets:
 - `next` (default)
 - `node`
 
+Themes:
+- `minimal` (default)
+- `neon-hud`
+Themes can also change the report layout.
+Themes live in `src/report-themes/` and are loaded by filename.
+
+Add a new theme by copying an existing JSON file in `src/report-themes/` and setting `layout` to `minimal` or `hud`.
+
+Example theme override:
+```
+{
+  "report": {
+    "theme": "neon-hud"
+  }
+}
+```
+
 Example override without editing JSON:
 ```
 npx @gfdlr/lighthouse-metrics report --set report.charts.coverage.metric=branches
