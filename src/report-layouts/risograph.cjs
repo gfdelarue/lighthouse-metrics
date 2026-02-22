@@ -615,8 +615,8 @@ module.exports = {
           <div class="chart-title">Quick Commands</div>
           <p style="color: var(--muted); font-size: 14px; margin: 0 0 8px;">Run these to regenerate metrics</p>
           <div class="code">
-            $ npx @gfdlr/lighthouse-metrics run<br />
-            $ npx @gfdlr/lighthouse-metrics serve --open
+            $ npx @gfdlr/litehouse-metrics run<br />
+            $ npx @gfdlr/litehouse-metrics serve --open
           </div>
         </div>
 

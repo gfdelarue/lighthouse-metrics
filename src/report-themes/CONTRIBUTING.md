@@ -36,8 +36,8 @@ Suggested starting points:
 After editing a theme, rebuild the report and open it:
 
 ```bash
-npx @gfdlr/lighthouse-metrics report --set report.theme=<your-theme>
-npx @gfdlr/lighthouse-metrics serve --open
+npx @gfdlr/litehouse-metrics report --set report.theme=<your-theme>
+npx @gfdlr/litehouse-metrics serve --open
 ```
 
 ## Common pitfalls

@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 
-const DEFAULT_CONFIG_FILENAME = "lighthouse-metrics.config.json";
+const DEFAULT_CONFIG_FILENAME = "litehouse-metrics.config.json";
 
 const PRESETS = {
   next: {

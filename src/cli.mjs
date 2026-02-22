@@ -118,7 +118,7 @@ const buildOverrides = (options, rawArgs) => {
 };
 
 export function runCli() {
-  const cli = cac("lighthouse-metrics");
+  const cli = cac("litehouse-metrics");
   const rawArgs = process.argv.slice(2);
 
   cli
@@ -131,7 +131,7 @@ export function runCli() {
   cli
     .command("run", "Run tests with coverage + cloc and write metrics JSON")
     .option("--cwd <path>", "Project root", { default: process.cwd() })
-    .option("--config <path>", "Path to lighthouse-metrics.config.json")
+    .option("--config <path>", "Path to litehouse-metrics.config.json")
     .option("--preset <name>", "Preset to apply (e.g. next, node)")
     .option("--set <key=value>", "Override config values (repeatable)")
     .option("--test-command <cmd>", "Custom test command to run")
@@ -166,7 +166,7 @@ export function runCli() {
   cli
     .command("report", "Generate the static HTML report")
     .option("--cwd <path>", "Project root", { default: process.cwd() })
-    .option("--config <path>", "Path to lighthouse-metrics.config.json")
+    .option("--config <path>", "Path to litehouse-metrics.config.json")
     .option("--preset <name>", "Preset to apply (e.g. next, node)")
     .option("--set <key=value>", "Override config values (repeatable)")
     .option("--report-dir <path>", "Report output directory")
@@ -185,7 +185,7 @@ export function runCli() {
   cli
     .command("serve", "Generate report and serve it locally")
     .option("--cwd <path>", "Project root", { default: process.cwd() })
-    .option("--config <path>", "Path to lighthouse-metrics.config.json")
+    .option("--config <path>", "Path to litehouse-metrics.config.json")
     .option("--preset <name>", "Preset to apply (e.g. next, node)")
     .option("--set <key=value>", "Override config values (repeatable)")
     .option("--port <port>", "Port to serve", { default: 8000 })
@@ -222,7 +222,7 @@ export function runCli() {
   cli
     .command("watch", "Watch metrics JSON and rebuild report on change")
     .option("--cwd <path>", "Project root", { default: process.cwd() })
-    .option("--config <path>", "Path to lighthouse-metrics.config.json")
+    .option("--config <path>", "Path to litehouse-metrics.config.json")
     .option("--preset <name>", "Preset to apply (e.g. next, node)")
     .option("--set <key=value>", "Override config values (repeatable)")
     .option("--report-dir <path>", "Report output directory")
@@ -253,7 +253,7 @@ export function runCli() {
   cli
     .command("dev", "Run metrics, serve report, and watch for updates")
     .option("--cwd <path>", "Project root", { default: process.cwd() })
-    .option("--config <path>", "Path to lighthouse-metrics.config.json")
+    .option("--config <path>", "Path to litehouse-metrics.config.json")
     .option("--preset <name>", "Preset to apply (e.g. next, node)")
     .option("--set <key=value>", "Override config values (repeatable)")
     .option("--port <port>", "Port to serve", { default: 8000 })

@@ -1,22 +1,22 @@
-# lighthouse-metrics
+# litehouse-metrics
 
 Cross-platform CLI to generate test + coverage + cloc metrics and a static HTML report.
 
 ## Install (local)
 ```
-npm i -D @gfdlr/lighthouse-metrics
+npm i -D @gfdlr/litehouse-metrics
 ```
 
 ## Quick start
 ```
 # Run tests + generate metrics JSON
-npx @gfdlr/lighthouse-metrics run
+npx @gfdlr/litehouse-metrics run
 
 # Build report + serve at http://localhost:8000
-npx @gfdlr/lighthouse-metrics serve --open
+npx @gfdlr/litehouse-metrics serve --open
 
 # Dev mode: run metrics, serve, watch JSON, open browser once
-npx @gfdlr/lighthouse-metrics dev
+npx @gfdlr/litehouse-metrics dev
 ```
 
 ## Commands
@@ -30,7 +30,7 @@ npx @gfdlr/lighthouse-metrics dev
 ## Options
 Common options:
 - `--cwd <path>` – project root (default: current working directory)
-- `--config <path>` – path to `lighthouse-metrics.config.json`
+- `--config <path>` – path to `litehouse-metrics.config.json`
 - `--preset <name>` – apply a preset (`next`, `node`)
 - `--set <key=value>` – override config values (repeatable)
 - `--port <number>` – server port (default: 8000)
@@ -43,8 +43,8 @@ Common options:
 - `--coverage-summary <path>` – path to coverage summary JSON
 
 ## Config file (optional)
-Create `lighthouse-metrics.config.json` in your project root to override defaults.
-See the template in this repo: `lighthouse-metrics.config.json`.
+Create `litehouse-metrics.config.json` in your project root to override defaults.
+See the template in this repo: `litehouse-metrics.config.json`.
 
 Presets:
 - `next` (default)
@@ -70,7 +70,7 @@ Example theme override:
 
 Example override without editing JSON:
 ```
-npx @gfdlr/lighthouse-metrics report --set report.charts.coverage.metric=branches
+npx @gfdlr/litehouse-metrics report --set report.charts.coverage.metric=branches
 ```
 
 ## Notes

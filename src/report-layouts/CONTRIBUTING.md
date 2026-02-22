@@ -15,8 +15,8 @@ This doc covers how to add or update report layouts.
 
 ## Quick local test
 ```bash
-npx @gfdlr/lighthouse-metrics report --set report.theme=<theme-name>
-npx @gfdlr/lighthouse-metrics serve --open
+npx @gfdlr/litehouse-metrics report --set report.theme=<theme-name>
+npx @gfdlr/litehouse-metrics serve --open
 ```
 
 ## Review checklist

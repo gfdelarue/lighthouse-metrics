@@ -6,8 +6,8 @@ import { loadConfig } from "../src/config.mjs";
 
 describe("loadConfig", () => {
   it("merges presets, config file, and overrides", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "lighthouse-metrics-"));
-    const configPath = path.join(root, "lighthouse-metrics.config.json");
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "litehouse-metrics-"));
+    const configPath = path.join(root, "litehouse-metrics.config.json");
     fs.writeFileSync(
       configPath,
       JSON.stringify(

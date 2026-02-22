@@ -454,8 +454,8 @@ module.exports = {
       <div class="card">
         <div class="chart-title">Quick commands</div>
         <div class="code">
-          npx @gfdlr/lighthouse-metrics run<br />
-          npx @gfdlr/lighthouse-metrics serve --open
+          npx @gfdlr/litehouse-metrics run<br />
+          npx @gfdlr/litehouse-metrics serve --open
         </div>
       </div>
     </main>

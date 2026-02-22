@@ -884,8 +884,8 @@ module.exports = {
             <div class="panel-title">⌨️ Command Terminal</div>
             <div class="info">Execute commands to rebuild metrics</div>
             <div class="code">
-              > npx @gfdlr/lighthouse-metrics run<br />
-              > npx @gfdlr/lighthouse-metrics serve --open<br />
+              > npx @gfdlr/litehouse-metrics run<br />
+              > npx @gfdlr/litehouse-metrics serve --open<br />
               <span style="color: var(--muted);">_</span>
             </div>
           </div>

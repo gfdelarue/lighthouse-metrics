@@ -18,7 +18,7 @@ const writeMetricsFiles = (root, data) => {
 };
 
 const createProject = async (data, overrides = {}) => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "lighthouse-metrics-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "litehouse-metrics-"));
   const config = await loadConfig(root, overrides);
   writeMetricsFiles(root, data);
   return { root, config };
@@ -131,8 +131,8 @@ describe("report tiering and messages", () => {
   });
 
   it("throws when layout module is missing", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "lighthouse-metrics-"));
-    const configPath = path.join(root, "lighthouse-metrics.config.json");
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "litehouse-metrics-"));
+    const configPath = path.join(root, "litehouse-metrics.config.json");
     fs.writeFileSync(
       configPath,
       JSON.stringify(

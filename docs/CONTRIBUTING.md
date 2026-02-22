@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for helping improve lighthouse-metrics! This guide covers how to contribute changes across the project.
+Thanks for helping improve litehouse-metrics! This guide covers how to contribute changes across the project.
 
 ## Basics
 - Keep changes focused and scoped to a single purpose.
