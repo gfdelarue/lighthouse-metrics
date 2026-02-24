@@ -1,6 +1,6 @@
 {
   "name": "@litehouse/metrics",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Test/coverage/LOC metrics with a fully themeable report dashboard.",
   "type": "module",
   "license": "Apache-2.0",
