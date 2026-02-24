@@ -10,13 +10,13 @@ npm i -D @gfdlr/litehouse-metrics
 ## Quick start
 ```
 # Run tests + generate metrics JSON
-npx @gfdlr/litehouse-metrics run
+npx @litehouse/metrics run
 
 # Build report + serve at http://localhost:8000
-npx @gfdlr/litehouse-metrics serve --open
+npx @litehouse/metrics serve --open
 
 # Dev mode: run metrics, serve, watch JSON, open browser once
-npx @gfdlr/litehouse-metrics dev
+npx @litehouse/metrics dev
 ```
 
 ## Commands
