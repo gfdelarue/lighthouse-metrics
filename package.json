@@ -14,7 +14,8 @@
   },
   "homepage": "https://github.com/gfdelarue/litehouse-metrics#readme",
   "scripts": {
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:avocado": "vitest run"
   },
   "keywords": [
     "metrics",
